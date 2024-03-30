@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timetable Display</title>
+  <style>
+    table {
+  border-collapse: collapse;
+  width: 80%;
+  margin: 20px auto; /* Centetrthe table */
+  border: 2px solid black; /* Add border to the table */
+}
+
+
+    th,
+    td {
+      border: 1px solid black;
+      text-align: left;
+      padding: 8px;
+    }
+
+    th {
+      background-color: #f2f2f2;
+    }
+
+    #pdfButtonContainer {
+      text-align: center; /* Center the button container */
+      margin-top: 20px; /* Add margin on top */
+    }
+
+    #savePDFButton {
+      padding: 10px 20px; /* Add padding to the button */
+      font-size: 16px;
+      background-color: #3888ef; /* Green background */
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 5px;
+      transition: background-color 0.3s; /* Smooth transition for background color */
+    }
+
+    #savePDFButton:hover {
+      background-color: #45a049; /* Darker green on hover */
+    }
+  </style>
+</head>
+
+<body>
+  <div id="timetableDisplay"></div>
+  <div id="pdfButtonContainer">
+    <button id="savePDFButton" onclick="saveAsPDF()">Save as PDF</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.3/html2pdf.bundle.min.js"></script>
+
+  <script>
+    class TimetableGenerator {
+      constructor(days, timeSlots, rooms, teacherAvailability, breakTime) {
+        this.days = days;
+        this.timeSlots = timeSlots;
+        this.rooms = rooms;
+        this.teacherAvailability = teacherAvailability;
+        this.breakTime = breakTime;
+        this.timetable = {};
+      }
+
+      generateTimetable(classesInfo) {
+        // Reset timetable
+        this.timetable = {};
+
+        // Use backtracking to explore the solution space for each day
+        for (let i = 0; i < this.days.length; i++) {
+          const day = this.days[i];
+          const classesForDay = classesInfo[day];
+          this.backtrack(classesForDay, i);
+        }
+
+        // Print or display the final timetable
+        this.displayTimetable();
+      }
+
+      async displayTimetable() {
+        const tableHTML = this.createTimetableTableHTML();
+        document.getElementById('timetableDisplay').innerHTML = tableHTML;
+      }
+
+      createTimetableTableHTML() {
+        let tableHTML = `<table><thead><tr><th>Time Slot</th>${this.days.map(day => `<th>${day}</th>`).join('')}</tr></thead><tbody>`;
+        for (const timeSlot of this.timeSlots) {
+          tableHTML += `<tr><td>${timeSlot}</td>`;
+          for (const day of this.days) {
+            const room = this.rooms[0]; // Assuming one room for simplicity
+            const key = `${day}-${timeSlot}-${room}`;
+            const value = this.timetable[key];
+            if (timeSlot === this.breakTime) {
+              tableHTML += `<td colspan="1">Break</td>`;
+            } else {
+              tableHTML += `<td>${value ? `${value.course}<br>(${value.details.teacher})` : ''}</td>`;
+            }
+          }
+          tableHTML += `</tr>`;
+        }
+        tableHTML += `</tbody></table>`;
+        return tableHTML;
+      }
+
+      backtrack(classes, currentDayIndex = 0) {
+        if (Object.keys(classes).length === 0) {
+          // All classes have been assigned, solution found
+          return true;
+        }
+
+        if (currentDayIndex >= this.days.length) {
+          // Reached the end of the week, no solution found
+          return false;
+        }
+
+        const day = this.days[currentDayIndex];
+
+        // Iterate through time slots
+        for (const timeSlot of this.timeSlots) {
+          // Filter classes available for this time slot
+          const availableClasses = {};
+          for (const [course, details] of Object.entries(classes)) {
+            const teacher = details.teacher;
+            if (
+              this.isTeacherAvailable(teacher, day, timeSlot) &&
+              this.isSlotAvailable(day, timeSlot, this.rooms[0])
+            ) {
+              availableClasses[course] = details;
+            }
+          }
+
+          // If no available classes for this time slot, continue to the next time slot
+          if (Object.keys(availableClasses).length === 0) {
+            continue;
+          }
+
+          // Choose one class for this time slot and recursively backtrack
+          for (const [course, details] of Object.entries(availableClasses)) {
+            // Assign the class
+            this.assignClass(day, timeSlot, this.rooms[0], course, details);
+
+            // Recursively explore the solution space
+            if (this.backtrack(
+              Object.fromEntries(Object.entries(classes).filter(([key]) => key !== course)),
+              currentDayIndex
+            )) {
+              return true; // Solution found, terminate backtracking
+            }
+
+            // If the current assignment does not lead to a solution, backtrack
+            this.removeAssignment(day, timeSlot, this.rooms[0]);
+          }
+        }
+
+        // If no valid assignment found for the current day, stop processing
+        return false;
+      }
+
+      clearTimetableForDay(day) {
+        for (const timeSlot of this.timeSlots) {
+          for (const room of this.rooms) {
+            delete this.timetable[`${day}-${timeSlot}-${room}`];
+          }
+        }
+      }
+
+      isSlotAvailable(day, timeSlot, room) {
+        return !this.timetable[`${day}-${timeSlot}-${room}`];
+      }
+
+      isTeacherAvailable(teacher, day, timeSlot) {
+        return this.teacherAvailability[teacher].includes(`${day}-${timeSlot}`);
+      }
+
+      assignClass(day, timeSlot, room, course, details) {
+        this.timetable[`${day}-${timeSlot}-${room}`] = {
+          course,
+          details
+        };
+      }
+
+      removeAssignment(day, timeSlot, room) {
+        delete this.timetable[`${day}-${timeSlot}-${room}`];
+      }
+    }
+
+
+// //test case for five classes with all teacher available for all time
+// const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+// const timeSlots = ["6:00 AM - 6:30 AM", "6:30 AM - 7:00 AM", "7:00 AM - 7:30 AM", "7:30 AM - 8:00 AM", "8:00 AM - 8:30 AM", "8:30 AM - 9:00 AM"];
+// const rooms = ["BSC CSIT 6th sem"]
+
+// const teacherAvailability = {
+
+// "Sital Mandal":  ["Sunday-6:00 AM - 6:30 AM","Sunday-6:30 AM - 7:00 AM","Sunday-7:30 AM - 8:00 AM","Sunday-8:00 AM - 8:30 AM","Sunday-8:30 AM - 9:00 AM","Monday-6:00 AM - 6:30 AM","Monday-6:30 AM - 7:00 AM","Monday-7:30 AM - 8:00 AM","Monday-8:00 AM - 8:30 AM","Monday-8:30 AM - 9:00 AM","Tuesday-6:00 AM - 6:30 AM","Tuesday-6:30 AM - 7:00 AM","Tuesday-7:30 AM - 8:00 AM","Tuesday-8:00 AM - 8:30 AM","Tuesday-8:30 AM - 9:00 AM","Wednesday-6:00 AM - 6:30 AM","Wednesday-6:30 AM - 7:00 AM","Wednesday-7:30 AM - 8:00 AM","Wednesday-8:00 AM - 8:30 AM","Wednesday-8:30 AM - 9:00 AM","Thursday-6:00 AM - 6:30 AM","Thursday-6:30 AM - 7:00 AM","Thursday-7:30 AM - 8:00 AM","Thursday-8:00 AM - 8:30 AM","Thursday-8:30 AM - 9:00 AM",
+// "Friday-6:00 AM - 6:30 AM","Friday-6:30 AM - 7:00 AM","Friday-7:30 AM - 8:00 AM","Friday-8:00 AM - 8:30 AM","Friday-8:30 AM - 9:00 AM",],
+
+// "Kamal Phuyal": ["Sunday-6:00 AM - 6:30 AM","Sunday-6:30 AM - 7:00 AM","Sunday-7:30 AM - 8:00 AM","Sunday-8:00 AM - 8:30 AM","Sunday-8:30 AM - 9:00 AM","Monday-6:00 AM - 6:30 AM","Monday-6:30 AM - 7:00 AM","Monday-7:30 AM - 8:00 AM","Monday-8:00 AM - 8:30 AM","Monday-8:30 AM - 9:00 AM","Tuesday-6:00 AM - 6:30 AM","Tuesday-6:30 AM - 7:00 AM","Tuesday-7:30 AM - 8:00 AM","Tuesday-8:00 AM - 8:30 AM","Tuesday-8:30 AM - 9:00 AM","Wednesday-6:00 AM - 6:30 AM","Wednesday-6:30 AM - 7:00 AM","Wednesday-7:30 AM - 8:00 AM","Wednesday-8:00 AM - 8:30 AM","Wednesday-8:30 AM - 9:00 AM","Thursday-6:00 AM - 6:30 AM","Thursday-6:30 AM - 7:00 AM","Thursday-7:30 AM - 8:00 AM","Thursday-8:00 AM - 8:30 AM","Thursday-8:30 AM - 9:00 AM",
+// "Friday-6:00 AM - 6:30 AM","Friday-6:30 AM - 7:00 AM","Friday-7:30 AM - 8:00 AM","Friday-8:00 AM - 8:30 AM","Friday-8:30 AM - 9:00 AM",],
+
+// "Narayan Dhamala": ["Sunday-6:00 AM - 6:30 AM","Sunday-6:30 AM - 7:00 AM","Sunday-7:30 AM - 8:00 AM","Sunday-8:00 AM - 8:30 AM","Sunday-8:30 AM - 9:00 AM","Monday-6:00 AM - 6:30 AM","Monday-6:30 AM - 7:00 AM","Monday-7:30 AM - 8:00 AM","Monday-8:00 AM - 8:30 AM","Monday-8:30 AM - 9:00 AM","Tuesday-6:00 AM - 6:30 AM","Tuesday-6:30 AM - 7:00 AM","Tuesday-7:30 AM - 8:00 AM","Tuesday-8:00 AM - 8:30 AM","Tuesday-8:30 AM - 9:00 AM","Wednesday-6:00 AM - 6:30 AM","Wednesday-6:30 AM - 7:00 AM","Wednesday-7:30 AM - 8:00 AM","Wednesday-8:00 AM - 8:30 AM","Wednesday-8:30 AM - 9:00 AM","Thursday-6:00 AM - 6:30 AM","Thursday-6:30 AM - 7:00 AM","Thursday-7:30 AM - 8:00 AM","Thursday-8:00 AM - 8:30 AM","Thursday-8:30 AM - 9:00 AM",
+// "Friday-6:00 AM - 6:30 AM","Friday-6:30 AM - 7:00 AM","Friday-7:30 AM - 8:00 AM","Friday-8:00 AM - 8:30 AM","Friday-8:30 AM - 9:00 AM",],
+
+// "Raju Poudel":["Sunday-6:00 AM - 6:30 AM","Sunday-6:30 AM - 7:00 AM","Sunday-7:30 AM - 8:00 AM","Sunday-8:00 AM - 8:30 AM","Sunday-8:30 AM - 9:00 AM","Monday-6:00 AM - 6:30 AM","Monday-6:30 AM - 7:00 AM","Monday-7:30 AM - 8:00 AM","Monday-8:00 AM - 8:30 AM","Monday-8:30 AM - 9:00 AM","Tuesday-6:00 AM - 6:30 AM","Tuesday-6:30 AM - 7:00 AM","Tuesday-7:30 AM - 8:00 AM","Tuesday-8:00 AM - 8:30 AM","Tuesday-8:30 AM - 9:00 AM","Wednesday-6:00 AM - 6:30 AM","Wednesday-6:30 AM - 7:00 AM","Wednesday-7:30 AM - 8:00 AM","Wednesday-8:00 AM - 8:30 AM","Wednesday-8:30 AM - 9:00 AM","Thursday-6:00 AM - 6:30 AM","Thursday-6:30 AM - 7:00 AM","Thursday-7:30 AM - 8:00 AM","Thursday-8:00 AM - 8:30 AM","Thursday-8:30 AM - 9:00 AM",
+// "Friday-6:00 AM - 6:30 AM","Friday-6:30 AM - 7:00 AM","Friday-7:30 AM - 8:00 AM","Friday-8:00 AM - 8:30 AM","Friday-8:30 AM - 9:00 AM",],
+
+// "Pradip Khatiwada":["Sunday-6:00 AM - 6:30 AM","Sunday-6:30 AM - 7:00 AM","Sunday-7:30 AM - 8:00 AM","Sunday-8:00 AM - 8:30 AM","Sunday-8:30 AM - 9:00 AM","Monday-6:00 AM - 6:30 AM","Monday-6:30 AM - 7:00 AM","Monday-7:30 AM - 8:00 AM","Monday-8:00 AM - 8:30 AM","Monday-8:30 AM - 9:00 AM","Tuesday-6:00 AM - 6:30 AM","Tuesday-6:30 AM - 7:00 AM","Tuesday-7:30 AM - 8:00 AM","Tuesday-8:00 AM - 8:30 AM","Tuesday-8:30 AM - 9:00 AM","Wednesday-6:00 AM - 6:30 AM","Wednesday-6:30 AM - 7:00 AM","Wednesday-7:30 AM - 8:00 AM","Wednesday-8:00 AM - 8:30 AM","Wednesday-8:30 AM - 9:00 AM","Thursday-6:00 AM - 6:30 AM","Thursday-6:30 AM - 7:00 AM","Thursday-7:30 AM - 8:00 AM","Thursday-8:00 AM - 8:30 AM","Thursday-8:30 AM - 9:00 AM",
+// "Friday-6:00 AM - 6:30 AM","Friday-6:30 AM - 7:00 AM","Friday-7:30 AM - 8:00 AM","Friday-8:00 AM - 8:30 AM","Friday-8:30 AM - 9:00 AM",],
+// };
+
+// const classesInfo = {
+//     "Sunday": {
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },  
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+//         "Theory of Computation": {teacher:"Pradip Khatiwada", students:33},
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 }
+//     },
+//     "Monday": {
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Theory of Computation": {teacher:"Pradip Khatiwada", students:33},
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 }
+//     },
+//     "Tuesday": {
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Theory of Computation": {teacher:"Pradip Khatiwada", students:33}
+//     },
+//     "Wednesday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+//         "Theory of Computation": {teacher:"Pradip Khatiwada", students:33}
+//     },
+//     "Thursday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+//         "Theory of Computation": {teacher:"Pradip Khatiwada", students:33}
+//     },
+//     "Friday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "Theory of Computation": {teacher:"Pradip Khatiwada", students:33},
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 }
+//     }
+// };
+// const timetableGenerator = new TimetableGenerator(daysOfWeek, timeSlots, rooms, teacherAvailability, "7:00 AM - 7:30 AM");
+
+
+// // test case for four classes
+//     const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+//     const timeSlots = ["6:30 AM - 7:30 AM", "7:30 AM - 8:30 AM", "8:30 AM - 9:00 AM", "9:00 AM - 10:00 AM", "10:00 AM - 11:00 AM"];
+//     const rooms = ["BSC CSIT 7th sem"];
+//     const teacherAvailability = {
+//       "Sital Mandal": ["Sunday-7:30 AM - 8:30 AM", "Sunday-10:00 AM - 11:00 AM", "Monday-7:30 AM - 8:30 AM", "Monday-10:00 AM - 11:00 AM", "Tuesday-7:30 AM - 8:30 AM", "Tuesday-10:00 AM - 11:00 AM", "Wednesday-7:30 AM - 8:30 AM", "Wednesday-10:00 AM - 11:00 AM", "Thursday-7:30 AM - 8:30 AM", "Thursday-10:00 AM - 11:00 AM", "Friday-7:30 AM - 8:30 AM", "Friday-10:00 AM - 11:00 AM"],
+
+//       "Kamal Phuyal": ["Sunday-9:00 AM - 10:00 AM", "Sunday-10:00 AM - 11:00 AM", "Monday-9:00 AM - 10:00 AM", "Monday-10:00 AM - 11:00 AM", "Tuesday-9:00 AM - 10:00 AM", "Tuesday-10:00 AM - 11:00 AM", "Wednesday-9:00 AM - 10:00 AM", "Wednesday-10:00 AM - 11:00 AM", "Thursday-9:00 AM - 10:00 AM", "Thursday-10:00 AM - 11:00 AM", "Friday-9:00 AM - 10:00 AM", "Friday-10:00 AM - 11:00 AM"],
+
+//       "Narayan Dhamala": ["Sunday-6:30 AM - 7:30 AM", "Sunday-7:30 AM - 8:30 AM", "Monday-6:30 AM - 7:30 AM", "Monday-7:30 AM - 8:30 AM", "Tuesday-6:30 AM - 7:30 AM", "Tuesday-7:30 AM - 8:30 AM", "Wednesday-6:30 AM - 7:30 AM", "Wednesday-7:30 AM - 8:30 AM", "Thursday-6:30 AM - 7:30 AM", "Thursday-7:30 AM - 8:30 AM", "Friday-6:30 AM - 7:30 AM", "Friday-7:30 AM - 8:30 AM"],
+
+//       "Raju Poudel": ["Sunday-6:30 AM - 7:30 AM", "Sunday-7:30 AM - 8:30 AM", "Sunday-9:00 AM - 10:00 AM", "Sunday-10:00 AM - 11:00 AM", "Monday-6:30 AM - 7:30 AM", "Monday-7:30 AM - 8:30 AM", "Monday-9:00 AM - 10:00 AM", "Monday-10:00 AM - 11:00 AM", "Tuesday-6:30 AM - 7:30 AM", "Tuesday-7:30 AM - 8:30 AM", "Tuesday-9:00 AM - 10:00 AM", "Tuesday-10:00 AM - 11:00 AM", "Wednesday-6:30 AM - 7:30 AM", "Wednesday-7:30 AM - 8:30 AM", "Wednesday-9:00 AM - 10:00 AM", "Wednesday-10:00 AM - 11:00 AM", "Thursday-6:30 AM - 7:30 AM", "Thursday-7:30 AM - 8:30 AM", "Thursday-9:00 AM - 10:00 AM", "Thursday-10:00 AM - 11:00 AM", "Friday-6:30 AM - 7:30 AM", "Friday-7:30 AM - 8:30 AM", "Friday-9:00 AM - 10:00 AM", "Friday-10:00 AM - 11:00 AM"],
+//     };
+
+//     const classesInfo = {
+//       "Sunday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 }
+//       },
+//       "Monday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 }
+//       },
+//       "Tuesday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 }
+//       },
+//       "Wednesday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+//       },
+//       "Thursday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 }
+//       },
+//       "Friday": {
+//         "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+//         "Principle of Management": { teacher: "Kamal Phuyal", students: 33 },
+//         "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+//         "Software Project Management": { teacher: "Sital Mandal", students: 33 }
+//       }
+//     };
+//     const timetableGenerator = new TimetableGenerator(daysOfWeek, timeSlots, rooms, teacherAvailability, "8:30 AM - 9:00 AM");
+
+// test case for another four classes
+    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+    const timeSlots = ["6:30 AM - 7:30 AM", "7:30 AM - 8:30 AM", "8:30 AM - 9:00 AM", "9:00 AM - 10:00 AM", "10:00 AM - 11:00 AM"];
+    const rooms = ["BSC CSIT 7th sem"];
+    const teacherAvailability = {
+      "Sital Mandal": ["Sunday-7:30 AM - 8:30 AM", "Sunday-10:00 AM - 11:00 AM", "Monday-7:30 AM - 8:30 AM", "Monday-10:00 AM - 11:00 AM", "Tuesday-7:30 AM - 8:30 AM", "Tuesday-10:00 AM - 11:00 AM", "Wednesday-7:30 AM - 8:30 AM", "Wednesday-10:00 AM - 11:00 AM", "Thursday-7:30 AM - 8:30 AM", "Thursday-10:00 AM - 11:00 AM", "Friday-7:30 AM - 8:30 AM", "Friday-10:00 AM - 11:00 AM"],
+
+      "Kamal Phuyal": ["Sunday-9:00 AM - 10:00 AM", "Sunday-10:00 AM - 11:00 AM", "Monday-9:00 AM - 10:00 AM", "Monday-10:00 AM - 11:00 AM", "Tuesday-9:00 AM - 10:00 AM", "Tuesday-10:00 AM - 11:00 AM", "Wednesday-9:00 AM - 10:00 AM", "Wednesday-10:00 AM - 11:00 AM", "Thursday-9:00 AM - 10:00 AM", "Thursday-10:00 AM - 11:00 AM", "Friday-9:00 AM - 10:00 AM", "Friday-10:00 AM - 11:00 AM"],
+
+      "Narayan Dhamala": ["Sunday-6:30 AM - 7:30 AM", "Sunday-7:30 AM - 8:30 AM", "Monday-6:30 AM - 7:30 AM", "Monday-7:30 AM - 8:30 AM", "Tuesday-6:30 AM - 7:30 AM", "Tuesday-7:30 AM - 8:30 AM", "Wednesday-6:30 AM - 7:30 AM", "Wednesday-7:30 AM - 8:30 AM", "Thursday-6:30 AM - 7:30 AM", "Thursday-7:30 AM - 8:30 AM", "Friday-6:30 AM - 7:30 AM", "Friday-7:30 AM - 8:30 AM"],
+
+      "Raju Poudel": ["Sunday-6:30 AM - 7:30 AM", "Sunday-7:30 AM - 8:30 AM", "Sunday-9:00 AM - 10:00 AM", "Sunday-10:00 AM - 11:00 AM", "Monday-6:30 AM - 7:30 AM", "Monday-7:30 AM - 8:30 AM", "Monday-9:00 AM - 10:00 AM", "Monday-10:00 AM - 11:00 AM", "Tuesday-6:30 AM - 7:30 AM", "Tuesday-7:30 AM - 8:30 AM", "Tuesday-9:00 AM - 10:00 AM", "Tuesday-10:00 AM - 11:00 AM", "Wednesday-6:30 AM - 7:30 AM", "Wednesday-7:30 AM - 8:30 AM", "Wednesday-9:00 AM - 10:00 AM", "Wednesday-10:00 AM - 11:00 AM", "Thursday-6:30 AM - 7:30 AM", "Thursday-7:30 AM - 8:30 AM", "Thursday-9:00 AM - 10:00 AM", "Thursday-10:00 AM - 11:00 AM", "Friday-6:30 AM - 7:30 AM", "Friday-7:30 AM - 8:30 AM", "Friday-9:00 AM - 10:00 AM", "Friday-10:00 AM - 11:00 AM"],
+    };
+
+    const classesInfo = {
+      "Sunday": {
+        "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+        "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+        "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+        "Principle of Management": { teacher: "Kamal Phuyal", students: 33 }
+      },
+      "Monday": {
+        "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+        "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+        "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+        "Principle of Management": { teacher: "Kamal Phuyal", students: 33 }
+      },
+      "Tuesday": {
+        "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+        "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+        "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+        "Principle of Management": { teacher: "Kamal Phuyal", students: 33 }
+      },
+      "Wednesday": {
+        "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+        "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+        "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+        "Principle of Management": { teacher: "Kamal Phuyal", students: 33 }
+      },
+      "Thursday": {
+        "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+        "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+        "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+        "Principle of Management": { teacher: "Kamal Phuyal", students: 33 }
+      },
+      "Friday": {
+        "Advanced Java Programming": { teacher: "Raju Poudel", students: 33 },
+        "Software Project Management": { teacher: "Sital Mandal", students: 33 },
+        "DWDM": { teacher: "Narayan Dhamala", students: 33 },
+        "Principle of Management": { teacher: "Kamal Phuyal", students: 33 }
+      }
+    };
+
+    const timetableGenerator = new TimetableGenerator(daysOfWeek, timeSlots, rooms, teacherAvailability, "8:30 AM - 9:00 AM");
+
+
+    function saveAsPDF() {
+      const element = document.getElementById('timetableDisplay');
+      html2pdf()
+        .from(element)
+        .save('routine.pdf');
+    }
+
+
+    // Generate timetable using backtracking
+    timetableGenerator.generateTimetable(classesInfo);
+  </script>
+</body>
+
+</html>
